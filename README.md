@@ -41,7 +41,7 @@ Uninstalling leaves your OpenTubeX settings and user data intact.
 
 After an OpenTubeX release finishes uploading its assets and is published,
 the application repository triggers the **Update stable release** workflow.
-The tap also checks for updates every six hours. The workflow:
+The workflow:
 
 1. reads the latest published stable release and validates its macOS ZIP
    assets and SHA-256 digests;
