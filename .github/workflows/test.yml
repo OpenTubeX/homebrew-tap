@@ -1,0 +1,34 @@
+name: Test cask
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Test updater
+        run: python3 -m unittest discover -s tests
+      - name: Install local tap
+        run: brew tap opentubex/tap "$GITHUB_WORKSPACE"
+      - name: Check cask style
+        run: brew style --cask opentubex/tap/opentubex
+      - name: Install cask
+        run: brew install --cask opentubex/tap/opentubex
+      - name: Test installed app
+        run: bash scripts/test-install.sh
+      - name: Uninstall cask
+        run: brew uninstall --cask opentubex/tap/opentubex

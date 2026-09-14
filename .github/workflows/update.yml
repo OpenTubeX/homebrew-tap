@@ -1,0 +1,108 @@
+name: Update stable release
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-stable
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.update.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Resolve latest stable release
+        id: update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m unittest discover -s tests
+          python3 scripts/update.py
+          if ! git diff --quiet -- Casks/opentubex.rb; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.update.outputs.changed == 'true'
+        with:
+          name: cask
+          path: Casks/opentubex.rb
+
+  test:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cask
+          path: Casks
+      - name: Install the candidate cask into the local tap
+        run: |
+          brew tap opentubex/tap "$GITHUB_WORKSPACE"
+          cp Casks/opentubex.rb "$(brew --repository opentubex/tap)/Casks/opentubex.rb"
+      - run: brew style --cask opentubex/tap/opentubex
+      - run: brew install --cask opentubex/tap/opentubex
+      - run: bash scripts/test-install.sh
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cask
+          path: Casks
+      - name: Publish tested cask with a GitHub-signed commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+
+          path = 'Casks/opentubex.rb'
+          endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/contents/{path}'
+          current = json.loads(subprocess.check_output(['gh', 'api', endpoint]))
+          source = Path(path).read_bytes()
+          if source == base64.b64decode(current['content']):
+              print('Cask is already current')
+              raise SystemExit(0)
+          # Do not overwrite a cask changed while the macOS checks were running.
+          expected = subprocess.check_output(['git', 'rev-parse', f'HEAD:{path}'], text=True).strip()
+          if current['sha'] != expected:
+              raise SystemExit('Cask changed during validation; rerun this workflow')
+          version = re.search(rb'  version "([^"]+)"', source)[1].decode()
+          payload = {'message': f'chore: update OpenTubeX to {version}',
+                     'content': base64.b64encode(source).decode(), 'sha': current['sha']}
+          subprocess.run(['gh', 'api', '--method', 'PUT', endpoint, '--input', '-', '--silent'],
+                         input=json.dumps(payload), text=True, check=True)
+          PY
