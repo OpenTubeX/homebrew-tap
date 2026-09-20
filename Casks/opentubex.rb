@@ -1,9 +1,9 @@
 cask "opentubex" do
   arch arm: "arm64", intel: "x64"
 
-  version "0.34.1-beta"
-  sha256 arm:   "a3a3f7ab91758f612f3beee71b9eef00544a0bc09a0b6b4ec76b0ca77d83a3ad",
-         intel: "8d5cf2bed2f4c2250b7da71c0f89d3d8bb4b2994ef81e45a29c6bf89a225b773"
+  version "0.35.0-beta"
+  sha256 arm:   "325bf799f9d1b9c67102fa3473dd87309e13433fdf5718a67dbbe31287d34d4a",
+         intel: "c53952853868df7254703d4f6d9ad6c04cd5f9c1120e4e8027fea3135c28a7e3"
 
   url "https://github.com/OpenTubeX/OpenTubeX/releases/download/v#{version}/opentubex-#{version}-mac-#{arch}.zip"
   name "OpenTubeX"
