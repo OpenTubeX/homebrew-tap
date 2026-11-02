@@ -1,7 +1,7 @@
 # OpenTubeX Homebrew tap
 
 This repository distributes [OpenTubeX](https://github.com/OpenTubeX/OpenTubeX)
-through [Homebrew](https://brew.sh/) on macOS 12 and later. It supports Apple
+through [Homebrew](https://brew.sh/) on macOS 13 and later. It supports Apple
 Silicon and Intel Macs and installs the app into Applications.
 
 ## Install OpenTubeX
