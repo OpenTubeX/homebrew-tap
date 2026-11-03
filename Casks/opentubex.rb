@@ -15,6 +15,7 @@ cask "opentubex" do
     strategy :github_latest
   end
 
+  conflicts_with cask: "opentubex@nightly"
   depends_on macos: :monterey
 
   app "OpenTubeX.app"

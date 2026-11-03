@@ -1,49 +1,60 @@
-name: Update stable release
+name: Update casks
 
 on:
+  repository_dispatch:
+    types: [opentubex-release, opentubex-nightly]
   workflow_dispatch:
+    inputs:
+      releaseTag:
+        description: Release tag (defaults to the latest stable release)
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: update-stable
+  group: update-casks
   cancel-in-progress: false
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      changed: ${{ steps.update.outputs.changed }}
+      casks: ${{ steps.update.outputs.casks }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Resolve latest stable release
+      - name: Resolve release
         id: update
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.client_payload.tag || inputs.releaseTag }}
         run: |
           python3 -m unittest discover -s tests
-          python3 scripts/update.py
-          if ! git diff --quiet -- Casks/opentubex.rb; then
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-          fi
+          python3 scripts/update.py ${TAG:+"$TAG"}
+          casks="$(git diff --name-only -- Casks | jq --raw-input --slurp --compact-output \
+            'split("\n") | map(select(length > 0) | ltrimstr("Casks/") | rtrimstr(".rb"))')"
+          echo "casks=$casks" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.update.outputs.changed == 'true'
+        if: steps.update.outputs.casks != '[]'
         with:
-          name: cask
-          path: Casks/opentubex.rb
+          name: casks
+          path: Casks/
 
   test:
     needs: prepare
-    if: needs.prepare.outputs.changed == 'true'
+    if: needs.prepare.outputs.casks != '[]'
     strategy:
       fail-fast: false
       matrix:
         os: [macos-15, macos-15-intel]
+        cask: ${{ fromJSON(needs.prepare.outputs.casks) }}
     runs-on: ${{ matrix.os }}
+    env:
+      CASK: opentubex/tap/${{ matrix.cask }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -51,18 +62,18 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: cask
+          name: casks
           path: Casks
-      - name: Install the candidate cask into the local tap
+      - name: Install the candidate casks into the local tap
         run: |
           brew tap opentubex/tap "$GITHUB_WORKSPACE"
-          cp Casks/opentubex.rb "$(brew --repository opentubex/tap)/Casks/opentubex.rb"
-      - run: brew style --cask opentubex/tap/opentubex
-      - run: brew install --cask opentubex/tap/opentubex
+          cp Casks/*.rb "$(brew --repository opentubex/tap)/Casks/"
+      - run: brew style --cask "$CASK"
+      - run: brew install --cask "$CASK"
       - run: bash scripts/test-install.sh
 
   publish:
-    needs: test
+    needs: [prepare, test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -73,11 +84,12 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: cask
+          name: casks
           path: Casks
-      - name: Publish tested cask with a GitHub-signed commit
+      - name: Publish tested casks with GitHub-signed commits
         env:
           GH_TOKEN: ${{ github.token }}
+          CASKS: ${{ needs.prepare.outputs.casks }}
         run: |
           python3 - <<'PY'
           import base64
@@ -87,20 +99,22 @@ jobs:
           import re
           import subprocess
 
-          path = 'Casks/opentubex.rb'
-          endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/contents/{path}'
-          current = json.loads(subprocess.check_output(['gh', 'api', endpoint]))
-          source = Path(path).read_bytes()
-          if source == base64.b64decode(current['content']):
-              print('Cask is already current')
-              raise SystemExit(0)
-          # Do not overwrite a cask changed while the macOS checks were running.
-          expected = subprocess.check_output(['git', 'rev-parse', f'HEAD:{path}'], text=True).strip()
-          if current['sha'] != expected:
-              raise SystemExit('Cask changed during validation; rerun this workflow')
-          version = re.search(rb'  version "([^"]+)"', source)[1].decode()
-          payload = {'message': f'chore: update OpenTubeX to {version}',
-                     'content': base64.b64encode(source).decode(), 'sha': current['sha']}
-          subprocess.run(['gh', 'api', '--method', 'PUT', endpoint, '--input', '-', '--silent'],
-                         input=json.dumps(payload), text=True, check=True)
+          names = {'opentubex': 'OpenTubeX', 'opentubex@nightly': 'OpenTubeX Nightly'}
+          for cask in json.loads(os.environ['CASKS']):
+              path = f'Casks/{cask}.rb'
+              endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/contents/{path}'
+              current = json.loads(subprocess.check_output(['gh', 'api', endpoint]))
+              source = Path(path).read_bytes()
+              if source == base64.b64decode(current['content']):
+                  print(f'{path} is already current')
+                  continue
+              # Do not overwrite a cask changed while the macOS checks were running.
+              expected = subprocess.check_output(['git', 'rev-parse', f'HEAD:{path}'], text=True).strip()
+              if current['sha'] != expected:
+                  raise SystemExit(f'{path} changed during validation; rerun this workflow')
+              version = re.search(rb'  version "([^"]+)"', source)[1].decode()
+              payload = {'message': f'chore: update {names[cask]} to {version}',
+                         'content': base64.b64encode(source).decode(), 'sha': current['sha']}
+              subprocess.run(['gh', 'api', '--method', 'PUT', endpoint, '--input', '-', '--silent'],
+                             input=json.dumps(payload), text=True, check=True)
           PY

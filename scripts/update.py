@@ -1,30 +1,54 @@
 #!/usr/bin/env python3
-"""Update the cask from the latest published OpenTubeX release."""
+"""Update the casks from a published OpenTubeX release.
+
+Usage: update.py [TAG]
+
+Without a tag, the latest stable release is used. Stable releases update both
+casks; nightly releases update only the nightly cask.
+"""
 
 import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 
-CASK = Path(__file__).resolve().parents[1] / "Casks/opentubex.rb"
+CASKS = Path(__file__).resolve().parents[1] / "Casks"
+STABLE = CASKS / "opentubex.rb"
+NIGHTLY = CASKS / "opentubex@nightly.rb"
+TAG = re.compile(r"v(\d+)\.(\d+)\.(\d+)(-beta|-nightly-(\d+))?")
 
 
-def update(source, release):
+def version_key(version):
+    match = TAG.fullmatch(f"v{version}")
+    if match is None:
+        raise ValueError(f"Unexpected version: {version}")
+    major, minor, patch, suffix, nightly = match.groups()
+    # Betas precede the final release. Nightlies follow the release they are numbered after.
+    rank = (2, int(nightly)) if nightly else (0, 0) if suffix else (1, 0)
+    return (int(major), int(minor), int(patch), *rank)
+
+
+def update(source, release, nightly=False):
     tag = release["tagName"]
-    if release["isDraft"] or release["isPrerelease"]:
-        raise ValueError("Only published stable releases can update the cask")
-    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-beta)?", tag):
+    match = TAG.fullmatch(tag)
+    if release["isDraft"] or match is None:
         raise ValueError(f"Unexpected release tag: {tag}")
+    is_nightly = match[5] is not None
+    if release["isPrerelease"] != is_nightly:
+        raise ValueError(f"Release type does not match tag: {tag}")
+    if is_nightly and not nightly:
+        raise ValueError("Only published stable releases can update the stable cask")
     version = tag[1:]
     current = re.search(r'^  version "([^"]+)"$', source, re.MULTILINE)
     if current is None:
         raise ValueError("Cask version is missing")
 
-    def version_key(value):
-        return (*map(int, value.removesuffix("-beta").split(".")), not value.endswith("-beta"))
-
     if version_key(version) < version_key(current[1]):
+        if nightly:
+            # The nightly cask already follows a newer build.
+            return source
         raise ValueError("Refusing to downgrade the cask")
 
     updated = source
@@ -49,14 +73,17 @@ def update(source, release):
 
 if __name__ == "__main__":
     result = subprocess.run(
-        ["gh", "release", "view", "--repo", "OpenTubeX/OpenTubeX",
+        ["gh", "release", "view", *sys.argv[1:2], "--repo", "OpenTubeX/OpenTubeX",
          "--json", "tagName,isDraft,isPrerelease,assets"],
         check=True, capture_output=True, text=True,
     )
-    source = CASK.read_text()
-    updated = update(source, json.loads(result.stdout))
-    if updated != source:
-        CASK.write_text(updated)
-        print("Updated OpenTubeX cask")
-    else:
-        print("OpenTubeX cask is current")
+    release = json.loads(result.stdout)
+    casks = [(NIGHTLY, True)] if release["isPrerelease"] else [(STABLE, False), (NIGHTLY, True)]
+    for path, nightly in casks:
+        source = path.read_text()
+        updated = update(source, release, nightly)
+        if updated != source:
+            path.write_text(updated)
+            print(f"Updated {path.name}")
+        else:
+            print(f"{path.name} is current")

@@ -14,7 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-15, macos-15-intel]
+        cask: [opentubex, opentubex@nightly]
     runs-on: ${{ matrix.os }}
+    env:
+      CASK: opentubex/tap/${{ matrix.cask }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,10 +28,10 @@ jobs:
       - name: Install local tap
         run: brew tap opentubex/tap "$GITHUB_WORKSPACE"
       - name: Check cask style
-        run: brew style --cask opentubex/tap/opentubex
+        run: brew style --cask "$CASK"
       - name: Install cask
-        run: brew install --cask opentubex/tap/opentubex
+        run: brew install --cask "$CASK"
       - name: Test installed app
         run: bash scripts/test-install.sh
       - name: Uninstall cask
-        run: brew uninstall --cask opentubex/tap/opentubex
+        run: brew uninstall --cask "$CASK"

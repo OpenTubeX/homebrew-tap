@@ -12,7 +12,7 @@ spec.loader.exec_module(updater)
 
 def release(version="99.0.0-beta"):
     return {
-        "tagName": f"v{version}", "isDraft": False, "isPrerelease": False,
+        "tagName": f"v{version}", "isDraft": False, "isPrerelease": "-nightly-" in version,
         "assets": [{
             "name": f"opentubex-{version}-mac-{arch}.zip",
             "url": f"https://github.com/OpenTubeX/OpenTubeX/releases/download/v{version}/opentubex-{version}-mac-{arch}.zip",
@@ -40,6 +40,10 @@ class UpdateTests(unittest.TestCase):
                 updater.update(self.source, data)
         with self.assertRaises(ValueError):
             updater.update(self.source, release("99.0.0-nightly-123"))
+        data = release("99.0.0-nightly-123")
+        data["isPrerelease"] = False
+        with self.assertRaises(ValueError):
+            updater.update(self.source, data, nightly=True)
 
     def test_rejects_downgrade(self):
         with self.assertRaisesRegex(ValueError, "downgrade"):
@@ -71,6 +75,28 @@ class UpdateTests(unittest.TestCase):
     def test_rejects_changed_cask_structure(self):
         with self.assertRaises(ValueError):
             updater.update(self.source.replace("sha256 arm:", "sha256 other:"), release())
+
+
+class NightlyUpdateTests(unittest.TestCase):
+    def setUp(self):
+        self.source = (ROOT / "Casks/opentubex@nightly.rb").read_text()
+
+    def update(self, version, source=None):
+        return updater.update(source or self.source, release(version), nightly=True)
+
+    def test_follows_nightly_and_stable_releases(self):
+        result = self.update("99.0.0-nightly-123")
+        self.assertIn('version "99.0.0-nightly-123"', result)
+        self.assertIn(f'sha256 arm:   "{"a" * 64}"', result)
+        self.assertIn(f'intel: "{"b" * 64}"', result)
+        self.assertIn('version "99.0.1-beta"', self.update("99.0.1-beta", result))
+
+    def test_keeps_newer_build(self):
+        result = self.update("99.0.0-nightly-123")
+        for version in ("99.0.0-beta", "99.0.0-nightly-122", "98.9.9-nightly-999"):
+            with self.subTest(version=version):
+                self.assertEqual(self.update(version, result), result)
+        self.assertIn('version "99.0.0-nightly-124"', self.update("99.0.0-nightly-124", result))
 
 
 if __name__ == "__main__":
