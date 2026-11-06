@@ -17,7 +17,7 @@ cask "opentubex@nightly" do
   end
 
   conflicts_with cask: "opentubex"
-  depends_on macos: :monterey
+  depends_on macos: :ventura
 
   app "OpenTubeX.app"
 
