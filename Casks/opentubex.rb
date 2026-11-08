@@ -10,15 +10,17 @@ cask "opentubex" do
   desc "Private YouTube client"
   homepage "https://opentubex.org/"
 
-  livecheck do
-    url :url
-    strategy :github_latest
-  end
-
   conflicts_with cask: "opentubex@nightly"
   depends_on macos: :ventura
 
   app "OpenTubeX.app"
+
+  zap trash: [
+    "~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments/io.opentubex.opentubex.sfl*",
+    "~/Library/Application Support/OpenTubeX",
+    "~/Library/Preferences/io.opentubex.opentubex.plist",
+    "~/Library/Saved Application State/io.opentubex.opentubex.savedState",
+  ]
 
   caveats <<~EOS
     OpenTubeX is ad-hoc signed and is not notarized by Apple.

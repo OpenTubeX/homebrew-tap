@@ -50,7 +50,9 @@ brew uninstall --cask opentubex  # or opentubex@nightly
 brew untap opentubex/tap
 ```
 
-Uninstalling leaves your OpenTubeX settings and user data intact.
+Uninstalling leaves your OpenTubeX settings and user data intact. To remove
+them as well, add `--zap` to the uninstall command. Both casks share this
+data, so zapping either one removes it.
 
 ## How publishing works
 
@@ -66,7 +68,8 @@ the application repository sends an `opentubex-release` or
    when the release is older than the build it already offers;
 3. checks Homebrew style, installs each changed candidate cask, and verifies
    app integrity and the Electron runtime on Apple Silicon and Intel runners;
-4. publishes the tested casks with GitHub-signed commits.
+4. publishes the tested casks in one GitHub-signed commit, provided the branch
+   has not changed since they were tested.
 
 The workflow reuses the official release packages without rebuilding the app.
 It can also be run manually. Without a tag, it picks up the latest stable

@@ -10,16 +10,17 @@ cask "opentubex@nightly" do
   desc "Private YouTube client"
   homepage "https://opentubex.org/"
 
-  livecheck do
-    url :url
-    regex(/^v?(\d+(?:\.\d+)+-nightly-\d+)$/i)
-    strategy :github_releases
-  end
-
   conflicts_with cask: "opentubex"
   depends_on macos: :ventura
 
   app "OpenTubeX.app"
+
+  zap trash: [
+    "~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments/io.opentubex.opentubex.sfl*",
+    "~/Library/Application Support/OpenTubeX",
+    "~/Library/Preferences/io.opentubex.opentubex.plist",
+    "~/Library/Saved Application State/io.opentubex.opentubex.savedState",
+  ]
 
   caveats <<~EOS
     OpenTubeX Nightly installs untested development builds and may be unstable.
