@@ -2,6 +2,7 @@ name: Test cask
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -33,5 +34,5 @@ jobs:
         run: brew install --cask "$CASK"
       - name: Test installed app
         run: bash scripts/test-install.sh
-      - name: Uninstall cask
-        run: brew uninstall --cask "$CASK"
+      - name: Uninstall cask and its data
+        run: brew uninstall --zap --cask "$CASK"

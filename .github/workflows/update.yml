@@ -22,10 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       casks: ${{ steps.update.outputs.casks }}
+      revision: ${{ steps.update.outputs.revision }}
     steps:
+      # Check out the branch as it is now. A queued run's event commit can be outdated.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.ref }}
           persist-credentials: false
       - name: Resolve release
         id: update
@@ -38,6 +40,7 @@ jobs:
           casks="$(git diff --name-only -- Casks | jq --raw-input --slurp --compact-output \
             'split("\n") | map(select(length > 0) | ltrimstr("Casks/") | rtrimstr(".rb"))')"
           echo "casks=$casks" >> "$GITHUB_OUTPUT"
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.update.outputs.casks != '[]'
         with:
@@ -58,7 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.prepare.outputs.revision }}
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -78,18 +81,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: casks
           path: Casks
-      - name: Publish tested casks with GitHub-signed commits
+      - name: Publish tested casks in one GitHub-signed commit
         env:
           GH_TOKEN: ${{ github.token }}
           CASKS: ${{ needs.prepare.outputs.casks }}
+          EXPECTED_HEAD: ${{ needs.prepare.outputs.revision }}
         run: |
           python3 - <<'PY'
           import base64
@@ -97,24 +97,28 @@ jobs:
           import os
           from pathlib import Path
           import re
-          import subprocess
 
           names = {'opentubex': 'OpenTubeX', 'opentubex@nightly': 'OpenTubeX Nightly'}
+          additions, versions = [], {}
           for cask in json.loads(os.environ['CASKS']):
               path = f'Casks/{cask}.rb'
-              endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/contents/{path}'
-              current = json.loads(subprocess.check_output(['gh', 'api', endpoint]))
               source = Path(path).read_bytes()
-              if source == base64.b64decode(current['content']):
-                  print(f'{path} is already current')
-                  continue
-              # Do not overwrite a cask changed while the macOS checks were running.
-              expected = subprocess.check_output(['git', 'rev-parse', f'HEAD:{path}'], text=True).strip()
-              if current['sha'] != expected:
-                  raise SystemExit(f'{path} changed during validation; rerun this workflow')
-              version = re.search(rb'  version "([^"]+)"', source)[1].decode()
-              payload = {'message': f'chore: update {names[cask]} to {version}',
-                         'content': base64.b64encode(source).decode(), 'sha': current['sha']}
-              subprocess.run(['gh', 'api', '--method', 'PUT', endpoint, '--input', '-', '--silent'],
-                             input=json.dumps(payload), text=True, check=True)
+              additions.append({'path': path, 'contents': base64.b64encode(source).decode()})
+              version = re.search(rb'^  version "([^"]+)"$', source, re.MULTILINE)[1].decode()
+              versions.setdefault(version, []).append(names[cask])
+          headline = 'chore: update ' + ', '.join(
+              f'{" and ".join(casks)} to {version}' for version, casks in versions.items())
+          request = {
+              'query': 'mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { url } } }',
+              'variables': {'input': {
+                  'branch': {'repositoryNameWithOwner': os.environ['GITHUB_REPOSITORY'],
+                             'branchName': os.environ['GITHUB_REF_NAME']},
+                  'expectedHeadOid': os.environ['EXPECTED_HEAD'],
+                  'message': {'headline': headline},
+                  'fileChanges': {'additions': additions},
+              }},
+          }
+          Path('commit-request.json').write_text(json.dumps(request))
           PY
+          # GitHub signs this commit and rejects it if the branch moved since the casks were tested.
+          gh api graphql --input commit-request.json
