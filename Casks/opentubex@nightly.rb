@@ -1,9 +1,9 @@
 cask "opentubex@nightly" do
   arch arm: "arm64", intel: "x64"
 
-  version "0.38.1-nightly-3261"
-  sha256 arm:   "fd6de1e48e9aa001a5f6f4cd8fa819491a77fbef0232543abf5c80efc03d0fd1",
-         intel: "a79df55258aa5fbc9f2cff7d337570bb40db64782a2096f0dfed8a9a6f457d02"
+  version "0.38.1-nightly-3301"
+  sha256 arm:   "70e13f3f69a817741439d3cfe680c9a40784f654400b12b0ca269f3cca67a499",
+         intel: "f7c8ca37803a9d94e9675030c3f1a2e14b991fe2a335bece236268abc2017a06"
 
   url "https://github.com/OpenTubeX/OpenTubeX/releases/download/v#{version}/opentubex-#{version}-mac-#{arch}.zip"
   name "OpenTubeX Nightly"
